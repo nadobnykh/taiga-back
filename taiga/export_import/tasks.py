@@ -29,8 +29,8 @@ from django.utils.translation import ugettext as _
 from taiga.base.mails import mail_builder
 from taiga.celery import app
 
-from .service import render_project
-from .dump_service import dict_to_project
+from . import exceptions as err
+from . import services
 from .renderers import ExportRenderer
 
 logger = logging.getLogger('taiga.export_import')
@@ -46,7 +46,7 @@ def dump_project(self, user, project):
     try:
         url = default_storage.url(path)
         with default_storage.open(storage_path, mode="w") as outfile:
-            render_project(project, outfile)
+            services.render_project(project, outfile)
 
     except Exception:
         # Error
@@ -80,25 +80,36 @@ def delete_project_dump(project_id, project_slug, task_id):
 @app.task
 def load_project_dump(user, dump):
     try:
-        project = dict_to_project(dump, user)
-    except Exception:
-        # Error
+        project = services.dict_to_project(dump, user)
+    except err.TaigaImportError as e:
+        # On Error
+        ## remove project
+        if e.project:
+            e.project.delete_related_content()
+            e.project.delete()
+
+        ## send email to the user
+        error_subject = _("Error loading project dump")
+        error_message = e.message or _("Error loading your project dump file")
+
         ctx = {
             "user": user,
-            "error_subject": _("Error loading project dump"),
-            "error_message": _("Error loading project dump"),
+            "error_subject": error_message,
+            "error_message": error_subject,
         }
         email = mail_builder.import_error(user, ctx)
         email.send()
-        logger.error('Error loading dump by %s <%s>',
+
+        ## logged the error to sysadmins
+        logger.error('Error loading dump by %s <%s>: %s.\n%s\n\n',
                      user,
                      user.email,
+                     message or _("unknown error"),
+                     services.store.get_errors(),
                      exc_info=sys.exc_info())
 
-        # TODO: [Rollback] Remove project because it can be corrupted
-
     else:
-        # Success
+        # On Success
         ctx = {"user": user, "project": project}
         email = mail_builder.load_dump(user, ctx)
         email.send()

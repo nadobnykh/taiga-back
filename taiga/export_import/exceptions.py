@@ -15,28 +15,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from django.core.management.base import BaseCommand, CommandError
 
-from taiga.projects.models import Project
-from taiga.export_import.renderers import ExportRenderer
-from taiga.export_import.services import render_project
-
-
-import resource
-
-
-class Command(BaseCommand):
-    args = '<project_slug project_slug ...>'
-    help = 'Export a project to json'
-    renderer_context = {"indent": 4}
-    renderer = ExportRenderer()
-
-    def handle(self, *args, **options):
-        for project_slug in args:
-            try:
-                project = Project.objects.get(slug=project_slug)
-            except Project.DoesNotExist:
-                raise CommandError('Project "%s" does not exist' % project_slug)
-
-            with open('%s.json'%(project_slug), 'w') as outfile:
-                render_project(project, outfile)
+class TaigaImportError(Exception):
+    def __init__(self, message, project):
+        self.message = message
+        self.project = project
